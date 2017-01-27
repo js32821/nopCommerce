@@ -44,6 +44,7 @@ namespace Nop.Plugin.Payments.PayPalStandard
         private readonly ICurrencyService _currencyService;
         private readonly ILocalizationService _localizationService;
         private readonly IOrderTotalCalculationService _orderTotalCalculationService;
+        private readonly IOrderService _orderService;
         private readonly ISettingService _settingService;
         private readonly ITaxService _taxService;
         private readonly IWebHelper _webHelper;
@@ -59,6 +60,7 @@ namespace Nop.Plugin.Payments.PayPalStandard
             ICurrencyService currencyService,           
             ILocalizationService localizationService,
             IOrderTotalCalculationService orderTotalCalculationService,
+            IOrderService orderService,
             ISettingService settingService,
             ITaxService taxService,
             IWebHelper webHelper,
@@ -70,6 +72,7 @@ namespace Nop.Plugin.Payments.PayPalStandard
             this._currencyService = currencyService;
             this._localizationService = localizationService;
             this._orderTotalCalculationService = orderTotalCalculationService;
+            this._orderService = orderService;
             this._settingService = settingService;
             this._taxService = taxService;
             this._webHelper = webHelper;
@@ -195,6 +198,7 @@ namespace Nop.Plugin.Payments.PayPalStandard
 
                 //get the items in the cart
                 decimal cartTotal = decimal.Zero;
+                var cartTotalRounded = decimal.Zero;
                 var cartItems = postProcessPaymentRequest.Order.OrderItems;
                 int x = 1;
                 foreach (var item in cartItems)
@@ -208,6 +212,7 @@ namespace Nop.Plugin.Payments.PayPalStandard
                     builder.AppendFormat("&quantity_" + x + "={0}", item.Quantity);
                     x++;
                     cartTotal += priceExclTax;
+                    cartTotalRounded += unitPriceExclTaxRounded * item.Quantity;
                 }
 
                 //the checkout attributes that have a dollar value and send them to Paypal as items to be paid for
@@ -228,6 +233,7 @@ namespace Nop.Plugin.Payments.PayPalStandard
                             builder.AppendFormat("&quantity_" + x + "={0}", 1); //quantity
                             x++;
                             cartTotal += attPrice;
+                            cartTotalRounded += attPriceRounded;
                         }
                     }
                 }
@@ -244,6 +250,7 @@ namespace Nop.Plugin.Payments.PayPalStandard
                     builder.AppendFormat("&quantity_" + x + "={0}", 1);
                     x++;
                     cartTotal += orderShippingExclTax;
+                    cartTotalRounded += orderShippingExclTaxRounded;
                 }
 
                 //payment method additional fee
@@ -256,6 +263,7 @@ namespace Nop.Plugin.Payments.PayPalStandard
                     builder.AppendFormat("&quantity_" + x + "={0}", 1);
                     x++;
                     cartTotal += paymentMethodAdditionalFeeExclTax;
+                    cartTotalRounded += paymentMethodAdditionalFeeExclTaxRounded;
                 }
 
                 //tax
@@ -271,6 +279,7 @@ namespace Nop.Plugin.Payments.PayPalStandard
                     builder.AppendFormat("&quantity_" + x + "={0}", 1); //quantity
 
                     cartTotal += orderTax;
+                    cartTotalRounded += orderTaxRounded;
                     x++;
                 }
 
@@ -281,9 +290,14 @@ namespace Nop.Plugin.Payments.PayPalStandard
                      */
                     decimal discountTotal = cartTotal - postProcessPaymentRequest.Order.OrderTotal;
                     discountTotal = Math.Round(discountTotal, 2);
+                    cartTotalRounded -= discountTotal;
                     //gift card or rewared point amount applied to cart in nopCommerce - shows in Paypal as "discount"
                     builder.AppendFormat("&discount_amount_cart={0}", discountTotal.ToString("0.00", CultureInfo.InvariantCulture));
                 }
+
+                //adjustment of order total related to inaccurate rounding of PayPal
+                postProcessPaymentRequest.Order.OrderTotal = cartTotalRounded;
+                _orderService.UpdateOrder(postProcessPaymentRequest.Order);
             }
             else
             {
